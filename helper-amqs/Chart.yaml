@@ -1,0 +1,4 @@
+apiVersion: v2
+name: helper-amqs
+description: Provisioning AMQ Streams Operator
+version: 1.0.0

@@ -1,0 +1,220 @@
+{{- range $key, $value := .Values.operators }}
+{{- if eq ($value.enabled | toString) "true" }}
+{{- if $value.kafka  }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    role: alert-rules
+    app: strimzi
+  name: prometheus-k8s-rules
+  namespace: {{ $value.namespace.name | quote }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $value.syncwave | default "4" | quote }}
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+  - name: kafka
+    rules:
+    - alert: KafkaRunningOutOfSpace
+      expr: kubelet_volume_stats_available_bytes{persistentvolumeclaim=~"data(-[0-9]+)?-(.+)-kafka-[0-9]+"} * 100 / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~"data(-[0-9]+)?-(.+)-kafka-[0-9]+"} < 15
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka is running out of free disk space'
+    - alert: UnderReplicatedPartitions
+      expr: kafka_server_replicamanager_underreplicatedpartitions > 0
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka under replicated partitions'
+    - alert: AbnormalControllerState
+      expr: sum(kafka_controller_kafkacontroller_activecontrollercount) by (strimzi_io_name) != 1
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka abnormal controller state'
+    - alert: OfflinePartitions
+      expr: sum(kafka_controller_kafkacontroller_offlinepartitionscount) > 0
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka offline partitions'
+        description: 'One or more partitions have no leader'
+    - alert: UnderMinIsrPartitionCount
+      expr: kafka_server_replicamanager_underminisrpartitioncount > 0
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka under min ISR partitions'
+    - alert: OfflineLogDirectoryCount
+      expr: kafka_log_logmanager_offlinelogdirectorycount > 0
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka offline log directories'
+    - alert: ScrapeProblem
+      expr: up{kubernetes_namespace!~"openshift-.+",kubernetes_pod_name=~".+-kafka-[0-9]+"} == 0
+      for: 3m
+      labels:
+        severity: major
+      annotations:
+        summary: 'Prometheus unable to scrape metrics'
+    - alert: ClusterOperatorContainerDown
+      expr: count((container_last_seen{container="strimzi-cluster-operator"} > (time() - 90))) < 1 or absent(container_last_seen{container="strimzi-cluster-operator"})
+      for: 1m
+      labels:
+        severity: major
+      annotations:
+        summary: 'Cluster Operator down'
+    - alert: KafkaBrokerContainersDown
+      expr: absent(container_last_seen{container="kafka",pod=~".+-kafka-[0-9]+"})
+      for: 3m
+      labels:
+        severity: major
+      annotations:
+        summary: 'All `kafka` containers down or in CrashLookBackOff status'
+    - alert: KafkaContainerRestartedInTheLast5Minutes
+      expr: count(count_over_time(container_last_seen{container="kafka"}[5m])) > 2 * count(container_last_seen{container="kafka",pod=~".+-kafka-[0-9]+"})
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: 'One or more Kafka containers restarted too often'
+  - name: zookeeper
+    rules:
+    - alert: AvgRequestLatency
+      expr: zookeeper_avgrequestlatency > 10
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Zookeeper average request latency'
+    - alert: OutstandingRequests
+      expr: zookeeper_outstandingrequests > 10
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Zookeeper outstanding requests'
+    - alert: ZookeeperRunningOutOfSpace
+      expr: kubelet_volume_stats_available_bytes{persistentvolumeclaim=~"data-(.+)-zookeeper-[0-9]+"} < 5368709120
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Zookeeper is running out of free disk space'
+    - alert: ZookeeperContainerRestartedInTheLast5Minutes
+      expr: count(count_over_time(container_last_seen{container="zookeeper"}[5m])) > 2 * count(container_last_seen{container="zookeeper",pod=~".+-zookeeper-[0-9]+"})
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: 'One or more Zookeeper containers were restarted too often'
+    - alert: ZookeeperContainersDown
+      expr: absent(container_last_seen{container="zookeeper",pod=~".+-zookeeper-[0-9]+"})
+      for: 3m
+      labels:
+        severity: major
+      annotations:
+        summary: 'All `zookeeper` containers in the Zookeeper pods down or in CrashLookBackOff status'
+  - name: entityOperator
+    rules:
+    - alert: TopicOperatorContainerDown
+      expr: absent(container_last_seen{container="topic-operator",pod=~".+-entity-operator-.+"})
+      for: 3m
+      labels:
+        severity: major
+      annotations:
+        summary: 'Container topic-operator in Entity Operator pod down or in CrashLookBackOff status'
+    - alert: UserOperatorContainerDown
+      expr: absent(container_last_seen{container="user-operator",pod=~".+-entity-operator-.+"})
+      for: 3m
+      labels:
+        severity: major
+      annotations:
+        summary: 'Container user-operator in Entity Operator pod down or in CrashLookBackOff status'
+    - alert: EntityOperatorTlsSidecarContainerDown
+      expr: absent(container_last_seen{container="tls-sidecar",pod=~".+-entity-operator-.+"})
+      for: 3m
+      labels:
+        severity: major
+      annotations:
+        summary: 'Container tls-sidecar Entity Operator pod down or in CrashLookBackOff status'
+  - name: connect
+    rules:
+    - alert: ConnectContainersDown
+      expr: absent(container_last_seen{container=~".+-connect",pod=~".+-connect-.+"})
+      for: 3m
+      labels:
+        severity: major
+      annotations:
+        summary: 'All Kafka Connect containers down or in CrashLookBackOff status'
+    - alert: AvgProducerLatency
+      expr: strimzi_bridge_kafka_producer_request_latency_avg > 10
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka Bridge average consumer fetch latency'
+    - alert: AvgConsumerFetchLatency
+      expr: strimzi_bridge_kafka_consumer_fetch_latency_avg > 500
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka Bridge consumer average fetch latency'
+    - alert: AvgConsumerCommitLatency
+      expr: strimzi_bridge_kafka_consumer_commit_latency_avg > 200
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka Bridge consumer average commit latency'
+    - alert: Http4xxErrorRate
+      expr: strimzi_bridge_http_server_requestCount_total{code=~"^4..$", container=~"^.+-bridge", path !="/favicon.ico"} > 10
+      for: 1m
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka Bridge returns code 4xx too often'
+    - alert: Http5xxErrorRate
+      expr: strimzi_bridge_http_server_requestCount_total{code=~"^5..$", container=~"^.+-bridge"} > 10
+      for: 1m
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka Bridge returns code 5xx too often'
+  - name: kafkaExporter
+    rules:
+    - alert: UnderReplicatedPartition
+      expr: kafka_topic_partition_under_replicated_partition > 0
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Topic has under-replicated partitions'
+    - alert: TooLargeConsumerGroupLag
+      expr: kafka_consumergroup_lag > 1000
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Consumer group lag is too big'
+    - alert: NoMessageForTooLong
+      expr: changes(kafka_topic_partition_current_offset{topic!="__consumer_offsets"}[10m]) == 0
+      for: 10s
+      labels:
+        severity: warning
+      annotations:
+        summary: 'No message for 10 minutes'
+{{- end }}
+{{- end }}
+{{- end }}
