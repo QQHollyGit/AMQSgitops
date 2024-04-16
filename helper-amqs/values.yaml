@@ -9,6 +9,7 @@ operators:
       operatorName: amq-streams
       source: redhat-operators
       sourceNamespace: openshift-marketplace
+      csv: amq-streams-v2.5.1-2
     kafka:
       user_prefix: user-info
       version: "3.5.0"
