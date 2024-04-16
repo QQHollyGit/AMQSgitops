@@ -1,1 +1,12 @@
-operators: []
+operators:
+  amqs-operator:
+    enabled: true
+    namespace:
+      name: amqtest
+    subscription:
+      channel: amq-streams-2.5.x
+      approval: Manual
+      operatorName: amq-streams
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+      csv: amq-streams-2.5.0.1
